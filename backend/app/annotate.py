@@ -28,7 +28,7 @@ def draw_review(
     out_path: Path,
 ) -> None:
     """Review frame: green = SAM box Spark agrees with, orange = SAM box Spark disputes,
-    blue '?' = carton Spark says has no box (approx box as 0-100 percentages of image width/height)."""
+    blue '?' = carton Spark says has no box (approx box in image pixels)."""
     img = Image.open(image_path).convert("RGB")
     draw = ImageDraw.Draw(img)
     for i, (d, ok) in enumerate(zip(detections, verified), start=1):
@@ -36,9 +36,7 @@ def draw_review(
         draw.rectangle([d.x1, d.y1, d.x2, d.y2], outline=color, width=4)
         draw.rectangle([d.x1, d.y1, d.x1 + 30, d.y1 + 20], fill=color)
         draw.text((d.x1 + 6, d.y1 + 4), str(i), fill="white")
-    w, h = img.size
-    for x1, y1, x2, y2 in uncovered:
-        box = [x1 / 100 * w, y1 / 100 * h, x2 / 100 * w, y2 / 100 * h]
+    for box in uncovered:
         draw.rectangle(box, outline=UNCOVERED, width=4)
         draw.rectangle([box[0], box[1], box[0] + 30, box[1] + 20], fill=UNCOVERED)
         draw.text((box[0] + 10, box[1] + 4), "?", fill="white")
