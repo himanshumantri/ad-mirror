@@ -33,7 +33,8 @@ def main() -> None:
         clip = path.stem.split("_")[1]
         c = count_clip(parse_sam_output(path.read_text(encoding="utf-8")))
         true = known.get(clip, "?")
-        err = f"{c.filtered_median - int(true):+.0f}" if true.isdigit() else ""
+        # Headline estimate is p80: count where the shelf is in view, not during label close-ups or pans away.
+        err = f"{c.filtered_p80 - int(true):+d}" if true.isdigit() else ""
         print(f"{clip:8} {c.frames:6} {c.raw_unique_ids:7} {c.raw_median_per_frame:9.1f} {c.filtered_median:8.1f} {c.filtered_p80:8} {c.filtered_max:8} {true:>6} {err:>5}")
 
 
