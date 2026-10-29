@@ -13,13 +13,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.config import OUT, TESTDATA  # noqa: E402
 from app.pipeline import run_clip  # noqa: E402
-from app.reconcile import load_book, reconcile, write_reports  # noqa: E402
+from app.reconcile import load_book, load_reviews, reconcile, write_reports  # noqa: E402
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("clips", nargs="+")
     ap.add_argument("--canonical", action="append", default=[], help='"<location>=<clip file>", one per location')
+    ap.add_argument("--reviews", default=str(TESTDATA / "reviews.csv"), help="human decisions: clip,item,qty,reviewer,note")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--refresh", action="store_true", help="ask Spark again instead of using cached verification")
     args = ap.parse_args()
@@ -37,7 +38,7 @@ def main() -> None:
     for spec in args.canonical:
         location, clip = spec.split("=", 1)
         canonical[location] = results[clip]
-    rows = reconcile(book, canonical)
+    rows = reconcile(book, canonical, load_reviews(Path(args.reviews)))
     write_reports(rows, OUT)
     print("\nreconciliation:")
     for row in rows:

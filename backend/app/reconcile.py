@@ -60,6 +60,26 @@ class Row:
         return round(self.variance_qty * self.unit_cost, 2)
 
 
+@dataclass
+class ReviewLine:
+    """A human decision: `qty` cartons of `item` in the clip. A clip's lines replace its machine count."""
+    clip: str
+    item: str
+    qty: int
+    reviewer: str
+    note: str = ""
+
+
+def load_reviews(path: Path) -> dict[str, list[ReviewLine]]:
+    """reviews.csv columns: clip, item, qty, reviewer, note. One row per item the reviewer counted."""
+    reviews: dict[str, list[ReviewLine]] = {}
+    if path.exists():
+        with path.open(newline="", encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                reviews.setdefault(r["clip"].strip(), []).append(ReviewLine(r["clip"].strip(), r["item"].strip(), int(r["qty"]), r["reviewer"].strip(), r.get("note", "").strip()))
+    return reviews
+
+
 def load_book(path: Path) -> list[BookLine]:
     with path.open(newline="", encoding="utf-8") as fh:
         return [BookLine(r["item"].strip(), r["location"].strip(), int(r["book_qty"]), float(r["unit_cost"])) for r in csv.DictReader(fh)]
@@ -71,12 +91,27 @@ def _status(counted: int, book: int, review: bool) -> str:
     return "match" if counted == book else "variance"
 
 
-def reconcile(book: list[BookLine], canonical: dict[str, ClipResult]) -> list[Row]:
-    """`canonical` maps a plan location to the one clip counted for it."""
+def reconcile(book: list[BookLine], canonical: dict[str, ClipResult], reviews: dict[str, list[ReviewLine]] | None = None) -> list[Row]:
+    """`canonical` maps a plan location to the one clip counted for it.
+
+    If a human review exists for that clip, its per-item counts replace the machine count; the machine count
+    stays in the note so the change is visible in the audit trail.
+    """
     rows: list[Row] = []
     for location in dict.fromkeys(b.location for b in book):
         lines = [b for b in book if b.location == location]
         result = canonical.get(location)
+        review = (reviews or {}).get(result.clip) if result else None
+        if result and review:
+            counted = {r.item: r.qty for r in review}
+            who = ", ".join(sorted({r.reviewer for r in review}))
+            note = f"reviewed by {who}; machine count {result.counted} -> reviewed {sum(counted.values())}"
+            for b in lines:
+                qty = counted.pop(b.item, 0)
+                rows.append(Row(location, b.item, b.book_qty, qty, b.unit_cost, _status(qty, b.book_qty, False), result.evidence, note))
+            for item, qty in counted.items():  # counted but not in the book for this location
+                rows.append(Row(location, item, 0, qty, None, "variance", result.evidence, note + "; not in book for this location"))
+            continue
         for b in lines:
             if result is None:
                 rows.append(Row(location, b.item, b.book_qty, None, b.unit_cost, "not_counted", note="no clip for this location"))

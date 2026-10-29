@@ -33,7 +33,8 @@ python scripts/smoke_models.py
 2. **SAM 3.1** tracks every "cardboard box" through the clip (`app/sam_client.py`). Its output is parsed and filtered per frame (`app/segmentation.py`).
 3. **Muse Spark 1.3** checks each SAM box on the clip's best frame, 3 times, majority vote (`app/verification.py`). The count is the number of boxes verified in at least 2 of 3 runs.
 4. Anything disputed, split between runs, or seen by Spark with no box sends the clip to human review, with a colour-coded frame (green verified, orange disputed, blue ? uncovered).
-5. `app/reconcile.py` compares counts with book stock, values variances at cost, and writes `reconciliation.csv` and `proposed_adjustments.csv`.
+5. A human decision is recorded in `reviews.csv` (clip, item, qty, reviewer, note). Cartons are visually identical, so a mixed clip's count is split between items by the reviewer; the machine count stays in the note.
+6. `app/reconcile.py` compares counts with book stock, values variances at cost, and writes `reconciliation.csv` and `proposed_adjustments.csv`. One clip per plan location is counted ("canonical"); a re-film replaces it, so a shelf is never counted twice.
 
 Model output is cached in `testdata/out/`, so everything after the model calls reruns offline.
 
@@ -61,6 +62,6 @@ cd backend
 Model calls need `MODEL_API_KEY`. `testdata/` (clips, book_stock.csv, clip_truth.csv, cached output) is git-ignored.
 
 ## Next steps
-1. Run all four clips through the pipeline, check what the narration resolver makes of B, C and D, and settle how mixed clips are split between items.
+1. Score a held-out set of fresh clips (different shelves, mixed items, one over 16 cartons) once, with the code frozen, against hand counts written beforehand.
 2. Backend service: Postgres schema, FastAPI endpoints for plan, upload, jobs and results, and a hello-world deploy to Render and Vercel.
 3. Frontend: guided capture with hash and timestamp at capture, then the reviewer queue that feeds confirmed counts into reconciliation.
