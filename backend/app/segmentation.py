@@ -72,6 +72,15 @@ def filter_frame(dets: list[Detection], f: Filters = Filters()) -> list[Detectio
     return out
 
 
+def best_frame(frames: dict[int, list[Detection]], f: Filters = Filters()) -> int:
+    """Frame to show a verifier: among frames at the p80 count, the one with the highest mean confidence."""
+    kept = {n: filter_frame(d, f) for n, d in frames.items()}
+    counts = sorted(len(k) for k in kept.values())
+    target = counts[int(0.8 * (len(counts) - 1))]
+    candidates = [n for n, k in kept.items() if len(k) == target]
+    return max(candidates, key=lambda n: statistics.mean(d.conf for d in kept[n]))
+
+
 @dataclass
 class ClipCount:
     frames: int
