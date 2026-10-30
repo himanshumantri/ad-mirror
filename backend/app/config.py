@@ -11,6 +11,11 @@ ROOT = Path(__file__).resolve().parents[2]
 TESTDATA = Path(os.environ.get("LEDGER_DATA_DIR", ROOT / "testdata"))
 OUT = TESTDATA / "out"  # cached raw model output, so reruns need no API call
 
+# Service settings. Locally: SQLite and a folder. On Render: DATABASE_URL (Postgres) and, later, object storage.
+UPLOADS = Path(os.environ.get("UPLOAD_DIR", TESTDATA / "uploads"))
+DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{(TESTDATA / 'ledgereyes.db').as_posix()}")
+MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "500"))
+
 
 def auth_headers() -> dict:
     key = os.environ.get("MODEL_API_KEY")
