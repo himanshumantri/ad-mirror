@@ -38,6 +38,46 @@ python scripts/smoke_models.py
 
 Model output is cached in `testdata/out/`, so everything after the model calls reruns offline.
 
+## Who supplies what, and which number wins
+| Input | Test | Rollout | Role |
+| --- | --- | --- | --- |
+| Book stock (`book_stock.csv`) | Hand-written | Exported from the customer's ERP | Comparison baseline only; never a source for the count |
+| Truth (`clip_truth.csv`, `fresh_truth.csv`) | Hand counts written before a run | Does not exist; a blind recount of a sampled shelf by a second person plays this part | Measures accuracy; never sets a count |
+| Reviews (`reviews.csv`) | The tester | The customer's reviewer, in the reviewer queue, with name and timestamp | Overrides the machine count for that clip |
+
+Counting policy, highest priority first:
+1. A reviewer's decision replaces the machine count for that clip; the machine count stays in the note for the audit trail.
+2. A machine count with no review reasons (no disputed boxes, split votes or uncovered cartons) is accepted.
+3. A flagged machine count with no review is not accepted: it stays `pending_review` and produces no adjustment.
+
+Never taken as a count: book stock, Spark's uncovered cartons (they only trigger review), quantities said aloud in the narration (they name the location and items; a later cross-check at most), and the truth file.
+
+Not built yet, recommended for audit use: the reviewer must not be the person who filmed the shelf, and a blind recount of a sample should produce the stated accuracy.
+
+## Output files
+`reconciliation.csv`: one row per book line (plus a location-total row for an unreviewed mixed clip). For the accountant to review.
+
+| Column | Meaning |
+| --- | --- |
+| location, item | Plan location and item, as in the book |
+| book_qty, counted_qty | Book quantity; counted (or reviewed) quantity, blank if not counted |
+| variance_qty | counted - book |
+| unit_cost, variance_value | Cost from the book; variance_qty x unit_cost |
+| status | `match`, `variance`, `pending_review`, `not_counted` |
+| evidence_frame | Review frame for the clip |
+| note | Reviewer and machine count, or the reasons a clip was flagged |
+
+`proposed_adjustments.csv`: only `variance` rows, in a NetSuite-style Inventory Adjustment layout (unconfirmed; test-import first).
+
+| Column | Meaning |
+| --- | --- |
+| Item, Adjustment Location | As in the book |
+| Adjustment Account | Blank: the customer's accounting choice |
+| Adjust Qty. By, New Quantity | counted - book; counted |
+| Unit Cost, Memo | Book unit cost; "LedgerEyes count <location>: book X, counted Y" |
+
+Ledger effect: a negative variance reduces inventory and is expensed to the adjustment account; a positive variance does the opposite. Values use the book's unit cost; the ERP revalues on posting if it uses average or FIFO cost, so treat them as estimates. `pending_review` and `not_counted` rows never reach the adjustments file.
+
 ## What we learned (build log)
 | Step | Finding | Decision |
 | --- | --- | --- |
