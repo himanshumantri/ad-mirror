@@ -48,6 +48,9 @@ class Row:
     status: str  # match | variance | pending_review | not_counted
     evidence: str = ""
     note: str = ""
+    count_source: str = ""  # machine | reviewed; blank when nothing was counted
+    reviewer: str = ""
+    flag: str = ""  # e.g. a possible transfer between locations
 
     @property
     def variance_qty(self) -> int | None:
@@ -108,15 +111,15 @@ def reconcile(book: list[BookLine], canonical: dict[str, ClipResult], reviews: d
             note = f"reviewed by {who}; machine count {result.counted} -> reviewed {sum(counted.values())}"
             for b in lines:
                 qty = counted.pop(b.item, 0)
-                rows.append(Row(location, b.item, b.book_qty, qty, b.unit_cost, _status(qty, b.book_qty, False), result.evidence, note))
+                rows.append(Row(location, b.item, b.book_qty, qty, b.unit_cost, _status(qty, b.book_qty, False), result.evidence, note, "reviewed", who))
             for item, qty in counted.items():  # counted but not in the book for this location
-                rows.append(Row(location, item, 0, qty, None, "variance", result.evidence, note + "; not in book for this location"))
+                rows.append(Row(location, item, 0, qty, None, "variance", result.evidence, note + "; not in book for this location", "reviewed", who))
             continue
         for b in lines:
             if result is None:
                 rows.append(Row(location, b.item, b.book_qty, None, b.unit_cost, "not_counted", note="no clip for this location"))
             elif result.item == b.item:
-                rows.append(Row(location, b.item, b.book_qty, result.counted, b.unit_cost, _status(result.counted, b.book_qty, result.needs_review), result.evidence, "; ".join(result.reasons)))
+                rows.append(Row(location, b.item, b.book_qty, result.counted, b.unit_cost, _status(result.counted, b.book_qty, result.needs_review), result.evidence, "; ".join(result.reasons), "machine"))
             elif result.item is None:
                 rows.append(Row(location, b.item, b.book_qty, None, b.unit_cost, "pending_review", result.evidence, "mixed clip: assign cartons to items"))
             else:
@@ -125,8 +128,26 @@ def reconcile(book: list[BookLine], canonical: dict[str, ClipResult], reviews: d
             # Mixed clip: cartons cannot yet be assigned to items, so compare the location total.
             total_book = sum(b.book_qty for b in lines)
             note = "; ".join([result.clip, *result.reasons])
-            rows.append(Row(location, TOTAL, total_book, result.counted, None, _status(result.counted, total_book, result.needs_review), result.evidence, note))
+            rows.append(Row(location, TOTAL, total_book, result.counted, None, _status(result.counted, total_book, result.needs_review), result.evidence, note, "machine"))
+    _flag_transfers(rows)
     return rows
+
+
+def _flag_transfers(rows: list[Row]) -> None:
+    """Mark variances of the same item with opposite signs at different locations: a misplaced carton looks like
+    a loss in one place and a gain in another, and may be a transfer, not an adjustment."""
+    variances = [r for r in rows if r.status == "variance" and r.item != TOTAL and r.variance_qty]
+    for r in variances:
+        others = sorted({o.location for o in variances if o.item == r.item and o.location != r.location and (o.variance_qty > 0) != (r.variance_qty > 0)})
+        if others:
+            r.flag = "possible transfer with " + ", ".join(others)
+
+
+def _memo(r: Row) -> str:
+    """Memo for the ERP: what was counted, by whom, the evidence frame, and any transfer flag."""
+    by = f"reviewed by {r.reviewer}" if r.count_source == "reviewed" else r.count_source
+    parts = [f"LedgerEyes count {r.location}: book {r.book_qty}, counted {r.counted_qty}", by, f"evidence {r.evidence}" if r.evidence else "", r.flag]
+    return "; ".join(p for p in parts if p)
 
 
 def _fmt(v) -> str:
@@ -137,12 +158,12 @@ def write_reports(rows: list[Row], out_dir: Path, adjustment_location: str = "",
     out_dir.mkdir(parents=True, exist_ok=True)
     with (out_dir / "reconciliation.csv").open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["location", "item", "book_qty", "counted_qty", "variance_qty", "unit_cost", "variance_value", "status", "evidence_frame", "note"])
+        w.writerow(["location", "item", "book_qty", "counted_qty", "variance_qty", "unit_cost", "variance_value", "status", "count_source", "reviewer", "flag", "evidence_frame", "note"])
         for r in rows:
-            w.writerow([r.location, r.item, r.book_qty, _fmt(r.counted_qty), _fmt(r.variance_qty), _fmt(r.unit_cost), _fmt(r.variance_value), r.status, r.evidence, r.note])
+            w.writerow([r.location, r.item, r.book_qty, _fmt(r.counted_qty), _fmt(r.variance_qty), _fmt(r.unit_cost), _fmt(r.variance_value), r.status, r.count_source, r.reviewer, r.flag, r.evidence, r.note])
     with (out_dir / "proposed_adjustments.csv").open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["Item", "Adjustment Location", "Adjustment Account", "Adjust Qty. By", "New Quantity", "Unit Cost", "Memo"])
         for r in rows:
             if r.status == "variance" and r.item != TOTAL:
-                w.writerow([r.item, adjustment_location or r.location, adjustment_account, r.variance_qty, r.counted_qty, _fmt(r.unit_cost), f"LedgerEyes count {r.location}: book {r.book_qty}, counted {r.counted_qty}"])
+                w.writerow([r.item, adjustment_location or r.location, adjustment_account, r.variance_qty, r.counted_qty, _fmt(r.unit_cost), _memo(r)])

@@ -64,6 +64,8 @@ Not built yet, recommended for audit use: the reviewer must not be the person wh
 | variance_qty | counted - book |
 | unit_cost, variance_value | Cost from the book; variance_qty x unit_cost |
 | status | `match`, `variance`, `pending_review`, `not_counted` |
+| count_source, reviewer | `machine` (auto-passed) or `reviewed`, and who reviewed it; blank if nothing was counted |
+| flag | `possible transfer with <location>` when the same item is short in one place and over in another: check before posting as two adjustments |
 | evidence_frame | Review frame for the clip |
 | note | Reviewer and machine count, or the reasons a clip was flagged |
 
@@ -74,7 +76,7 @@ Not built yet, recommended for audit use: the reviewer must not be the person wh
 | Item, Adjustment Location | As in the book |
 | Adjustment Account | Blank: the customer's accounting choice |
 | Adjust Qty. By, New Quantity | counted - book; counted |
-| Unit Cost, Memo | Book unit cost; "LedgerEyes count <location>: book X, counted Y" |
+| Unit Cost, Memo | Book unit cost; memo with the counts, machine or reviewer, the evidence frame and any transfer flag |
 
 Ledger effect: a negative variance reduces inventory and is expensed to the adjustment account; a positive variance does the opposite. Values use the book's unit cost; the ERP revalues on posting if it uses average or FIFO cost, so treat them as estimates. `pending_review` and `not_counted` rows never reach the adjustments file.
 
