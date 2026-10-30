@@ -1,0 +1,60 @@
+"""Database tables. One organisation for now: auth and per-customer separation come later."""
+from datetime import UTC, datetime
+
+from sqlalchemy import JSON, ForeignKey, String
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class BookLineRow(Base):
+    """One line of the customer's book stock: the plan of locations and the quantities to count against."""
+    __tablename__ = "book_lines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item: Mapped[str] = mapped_column(String(200))
+    location: Mapped[str] = mapped_column(String(100), index=True)
+    book_qty: Mapped[int]
+    unit_cost: Mapped[float]
+
+
+class Clip(Base):
+    """An uploaded video and what the pipeline made of it. sha256 is computed by the server on receipt."""
+    __tablename__ = "clips"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    filename: Mapped[str] = mapped_column(String(200))  # stored name "<id>.<ext>"; also the cache key for model output
+    original_name: Mapped[str] = mapped_column(String(300))
+    sha256: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int]
+    uploaded_at: Mapped[datetime] = mapped_column(default=_now, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued")  # queued | running | done | failed
+    error: Mapped[str] = mapped_column(String(2000), default="")
+    finished_at: Mapped[datetime | None] = mapped_column(default=None)
+    # Pipeline result
+    location: Mapped[str | None] = mapped_column(String(100), default=None)
+    item: Mapped[str | None] = mapped_column(String(200), default=None)
+    counted: Mapped[int | None] = mapped_column(default=None)
+    needs_review: Mapped[bool] = mapped_column(default=False)
+    reasons: Mapped[list] = mapped_column(JSON, default=list)
+    evidence: Mapped[str] = mapped_column(String(500), default="")
+    transcript: Mapped[str] = mapped_column(String(4000), default="")
+    # Set by a reviewer when the narration did not name a recognisable location
+    review_location: Mapped[str | None] = mapped_column(String(100), default=None)
+
+
+class Review(Base):
+    """One line of a reviewer's decision. A submission is a batch; the latest batch for a clip wins and older ones stay as history."""
+    __tablename__ = "reviews"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    clip_id: Mapped[str] = mapped_column(ForeignKey("clips.id"), index=True)
+    batch: Mapped[str] = mapped_column(String(32))
+    item: Mapped[str] = mapped_column(String(200))
+    qty: Mapped[int]
+    reviewer: Mapped[str] = mapped_column(String(200))
+    note: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(default=_now)

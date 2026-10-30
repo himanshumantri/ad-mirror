@@ -121,7 +121,29 @@ cd backend
 `run_pipeline.py` also takes `--book <csv>` (default `testdata/book_stock.csv`) and `--reviews <csv>`, so a separate set such as Fresh 1-5 keeps its own book and review files.
 Model calls need `MODEL_API_KEY`. `testdata/` (clips, book_stock.csv, clip_truth.csv, cached output) is git-ignored.
 
+## Running the service
+Backend (SQLite locally, Postgres when `DATABASE_URL` is set):
+```
+cd backend
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+set MODEL_API_KEY=...
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+```
+Frontend:
+```
+cd frontend
+copy .env.example .env        # VITE_API_URL=http://localhost:8000
+npm install
+npm run dev                   # http://localhost:5173
+```
+Flow in the app: **Book stock** (upload the ERP CSV) -> **Capture** (a clip is fingerprinted on the device and re-hashed by the server; a mismatch is rejected) -> counting runs in the background -> **Clips** (flagged clips show the evidence frame; the reviewer enters per-item counts, and names the location if the narration did not) -> **Reconciliation** (table and the two CSV downloads).
+
+API: `PUT /plan`, `GET /plan`, `POST /clips`, `GET /clips`, `GET /clips/{id}`, `GET /clips/{id}/evidence`, `POST /clips/{id}/review`, `GET /reconciliation`, `GET /reconciliation.csv`, `GET /proposed_adjustments.csv`. The latest finished clip per location is the one reconciled, so a re-film replaces the earlier clip; every upload and every review submission is kept.
+
+Status: tested with a fake pipeline (`tests/test_api.py`) and started once against SQLite. Not yet run end to end with real clips through the UI, not deployed (`render.yaml` and `backend/Dockerfile` are written but untried), and the Vercel project is not created. Known gaps: no login or per-customer separation, counting runs inside the API process (a worker comes later), uploads sit on a disk (object storage later), tables are created at start-up (migrations before the schema changes), and the capture screen does not check orientation or lighting yet.
+
 ## Next steps
-1. Fresh 1-5 are scored (see above). Next: record reviewer decisions for the flagged clips in `fresh_reviews.csv`, then fix the weak spots (dark cartons, blurred frames, Spark over-disputing) and measure the fix on new clips, including one with more than 16 visible cartons.
-2. Backend service: Postgres schema, FastAPI endpoints for plan, upload, jobs and results, and a hello-world deploy to Render and Vercel.
-3. Frontend: guided capture with hash and timestamp at capture, then the reviewer queue that feeds confirmed counts into reconciliation.
+1. Fix the weak spots from the Fresh run (dark cartons, blurred frames, Spark over-disputing) and measure the fix on new clips, including one with more than 16 visible cartons. Waiting on new footage.
+2. Run the service end to end with real clips through the UI, then deploy: Render (blueprint in `render.yaml`) and Vercel (set `VITE_API_URL`, and `CORS_ORIGINS` on the API).
+3. Capture screen: orientation, lighting and steadiness checks before upload; server countersigning and a sealed evidence pack.
+4. Login, reviewer separate from capturer, and a blind-recount sample for the stated accuracy.

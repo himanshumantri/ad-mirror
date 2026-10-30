@@ -1,0 +1,135 @@
+import hashlib
+import sys
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.factory import create_app  # noqa: E402
+from app.reconcile import ClipResult  # noqa: E402
+
+BOOK_CSV = "item,location,book_qty,unit_cost\nmonitor,A1-B2,5,100\nmonitor,A1-B4,2,100\nkeyboard,A1-B4,2,50\n"
+VIDEO = b"not a real video, the fake pipeline never decodes it"
+
+
+class FakeRunner:
+    """Stands in for the model pipeline: returns whatever result the test queued, or raises."""
+
+    def __init__(self):
+        self.results: list = []
+
+    def __call__(self, video, book):
+        nxt = self.results.pop(0)
+        if isinstance(nxt, Exception):
+            raise nxt
+        return ClipResult(video.name, *nxt)
+
+
+@pytest.fixture
+def runner():
+    return FakeRunner()
+
+
+@pytest.fixture
+def client(tmp_path, runner):
+    return TestClient(create_app("sqlite://", tmp_path / "uploads", runner))
+
+
+def put_plan(client, text=BOOK_CSV):
+    return client.put("/plan", files={"file": ("book.csv", text, "text/csv")})
+
+
+def upload(client, data=VIDEO, **form):
+    return client.post("/clips", files={"file": ("shelf.mp4", data, "video/mp4")}, data=form)
+
+
+def auto_pass(location="A1-B2", item="monitor", counted=4):
+    return (location, item, counted, False, [], "", "narration")
+
+
+def test_plan_upload_replaces_book_and_validates(client):
+    assert put_plan(client).json() == {"lines": 3, "locations": 2}
+    assert client.get("/plan").json()["locations"] == ["A1-B2", "A1-B4"]
+    assert put_plan(client, "item,location\nx,y\n").status_code == 422
+    assert put_plan(client, "item,location,book_qty,unit_cost\nx,y,many,1\n").status_code == 422
+    assert len(client.get("/plan").json()["lines"]) == 3  # a bad upload leaves the book as it was
+
+
+def test_clip_needs_a_plan_and_a_video(client):
+    assert upload(client).status_code == 409
+    put_plan(client)
+    assert client.post("/clips", files={"file": ("notes.txt", b"hi", "text/plain")}).status_code == 415
+
+
+def test_upload_is_hashed_by_the_server_and_counted_in_the_background(client, runner):
+    put_plan(client)
+    runner.results.append(auto_pass())
+    r = upload(client, client_sha256=hashlib.sha256(VIDEO).hexdigest())
+    assert r.status_code == 201
+    clip = client.get(f"/clips/{r.json()['id']}").json()
+    assert clip["sha256"] == hashlib.sha256(VIDEO).hexdigest()
+    assert (clip["status"], clip["machine_count"], clip["location"], clip["needs_review"]) == ("done", 4, "A1-B2", False)
+
+
+def test_a_hash_that_differs_from_the_devices_is_rejected(client):
+    put_plan(client)
+    r = upload(client, client_sha256="0" * 64)
+    assert r.status_code == 422 and client.get("/clips").json() == []
+
+
+def test_a_pipeline_failure_ends_as_a_failed_clip(client, runner):
+    put_plan(client)
+    runner.results.append(RuntimeError("MODEL_API_KEY is not set"))
+    clip = client.get(f"/clips/{upload(client).json()['id']}").json()
+    assert clip["status"] == "failed" and "MODEL_API_KEY" in clip["error"]
+    assert client.post(f"/clips/{clip['id']}/review", json={"reviewer": "kim", "lines": [{"item": "monitor", "qty": 1}]}).status_code == 409
+
+
+def test_auto_passed_clip_reconciles_and_exports(client, runner):
+    put_plan(client)
+    runner.results.append(auto_pass())
+    upload(client)
+    rows = {(r["location"], r["item"]): r for r in client.get("/reconciliation").json()}
+    assert rows[("A1-B2", "monitor")]["variance_qty"] == -1 and rows[("A1-B2", "monitor")]["count_source"] == "machine"
+    assert rows[("A1-B4", "monitor")]["status"] == "not_counted"
+    csv_text = client.get("/proposed_adjustments.csv")
+    assert csv_text.headers["content-type"].startswith("text/csv")
+    assert "monitor,A1-B2,,-1,4" in csv_text.text
+    assert client.get("/reconciliation.csv").text.startswith("location,item,book_qty")
+
+
+def test_review_names_the_location_and_replaces_the_machine_count(client, runner):
+    put_plan(client)
+    runner.results.append((None, None, 3, True, ["location not recognised from narration"], "", "shelf B4"))
+    clip = upload(client).json()
+    assert client.get("/reconciliation").json()[0]["status"] == "not_counted"  # no location yet, nothing to reconcile
+    bad = client.post(f"/clips/{clip['id']}/review", json={"reviewer": "kim", "location": "Z9-Z9", "lines": [{"item": "monitor", "qty": 3}]})
+    assert bad.status_code == 422
+    ok = client.post(f"/clips/{clip['id']}/review", json={
+        "reviewer": "kim", "location": "A1-B4",
+        "lines": [{"item": "monitor", "qty": 3, "note": "third one behind"}, {"item": "keyboard", "qty": 2}],
+    })
+    assert ok.json()["location"] == "A1-B4" and len(ok.json()["review"]["lines"]) == 2
+    rows = {(r["location"], r["item"]): r for r in client.get("/reconciliation").json()}
+    assert (rows[("A1-B4", "monitor")]["counted_qty"], rows[("A1-B4", "monitor")]["reviewer"]) == (3, "kim")
+    assert rows[("A1-B4", "keyboard")]["status"] == "match"
+
+
+def test_second_review_supersedes_the_first_and_a_refilm_replaces_the_clip(client, runner):
+    put_plan(client)
+    runner.results += [(*auto_pass(counted=3)[:2], 3, True, ["x"], "", ""), auto_pass(counted=5)]
+    first = upload(client).json()
+    client.post(f"/clips/{first['id']}/review", json={"reviewer": "kim", "lines": [{"item": "monitor", "qty": 2}]})
+    client.post(f"/clips/{first['id']}/review", json={"reviewer": "kim", "lines": [{"item": "monitor", "qty": 4}]})
+    row = next(r for r in client.get("/reconciliation").json() if r["item"] == "monitor" and r["location"] == "A1-B2")
+    assert row["counted_qty"] == 4
+    upload(client)  # a re-film of the same shelf replaces the earlier clip, review included
+    row = next(r for r in client.get("/reconciliation").json() if r["item"] == "monitor" and r["location"] == "A1-B2")
+    assert (row["counted_qty"], row["count_source"]) == (5, "machine")
+    assert len(client.get("/clips").json()) == 2  # both uploads are kept
+
+
+def test_unknown_clip_is_404(client):
+    assert client.get("/clips/nope").status_code == 404
+    assert client.get("/clips/nope/evidence").status_code == 404

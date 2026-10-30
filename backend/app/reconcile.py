@@ -12,6 +12,7 @@ Outputs (see `write_reports`):
 Cartons are treated as units (1 carton = 1 book unit). Pack sizes are not modelled yet.
 """
 import csv
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -83,9 +84,21 @@ def load_reviews(path: Path) -> dict[str, list[ReviewLine]]:
     return reviews
 
 
+def parse_book(lines: Iterable[str]) -> list[BookLine]:
+    """Book stock CSV: item, location, book_qty, unit_cost. Raises ValueError on a missing column or a bad number."""
+    reader = csv.DictReader(lines)
+    missing = {"item", "location", "book_qty", "unit_cost"} - set(reader.fieldnames or [])
+    if missing:
+        raise ValueError(f"missing column(s): {', '.join(sorted(missing))}")
+    try:
+        return [BookLine(r["item"].strip(), r["location"].strip(), int(r["book_qty"]), float(r["unit_cost"])) for r in reader]
+    except (TypeError, ValueError, AttributeError) as e:
+        raise ValueError(f"bad value in book stock: {e}") from e
+
+
 def load_book(path: Path) -> list[BookLine]:
     with path.open(newline="", encoding="utf-8") as fh:
-        return [BookLine(r["item"].strip(), r["location"].strip(), int(r["book_qty"]), float(r["unit_cost"])) for r in csv.DictReader(fh)]
+        return parse_book(fh)
 
 
 def _status(counted: int, book: int, review: bool) -> str:

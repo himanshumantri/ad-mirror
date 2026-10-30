@@ -1,0 +1,32 @@
+# Render blueprint: API (Docker, so ffmpeg is present) and Postgres, both in the US region.
+# Not deployed or tested yet. Set MODEL_API_KEY and CORS_ORIGINS in the Render dashboard.
+# Uploads and cached model output live on a persistent disk until object storage replaces it.
+services:
+  - type: web
+    name: ledgereyes-api
+    runtime: docker
+    region: oregon
+    plan: starter
+    dockerContext: backend
+    dockerfilePath: backend/Dockerfile
+    healthCheckPath: /health
+    disk:
+      name: ledgereyes-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ledgereyes-db
+          property: connectionString
+      - key: LEDGER_DATA_DIR
+        value: /data
+      - key: MODEL_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+
+databases:
+  - name: ledgereyes-db
+    region: oregon
+    plan: basic-256mb
