@@ -72,3 +72,32 @@ def test_review_item_not_in_book_is_a_variance():
     review = {"c.mp4": [ReviewLine("c.mp4", "Mystery item", 2, "kim")]}
     rows = by_item(reconcile(BOOK, {"A1-B2": clip(None, 2)}, review))
     assert rows["Mystery item"].status == "variance" and rows["Mystery item"].book_qty == 0
+
+
+def test_count_source_reviewer_and_memo_trace_each_adjustment_to_its_evidence(tmp_path):
+    from app.reconcile import ReviewLine
+
+    machine = by_item(reconcile(BOOK, {"A1-B2": clip("IFB Microwave", 5)}))["IFB Microwave"]
+    assert (machine.count_source, machine.reviewer) == ("machine", "")
+    review = {"c.mp4": [ReviewLine("c.mp4", "IFB Microwave", 5, "kim")]}
+    rows = reconcile(BOOK, {"A1-B2": clip(None, 8, review=True)}, review)
+    assert by_item(rows)["IFB Microwave"].count_source == "reviewed"
+    write_reports(rows, tmp_path)
+    adj = list(csv.DictReader((tmp_path / "proposed_adjustments.csv").open()))
+    assert "reviewed by kim" in adj[0]["Memo"] and "evidence e.png" in adj[0]["Memo"]
+    recon = list(csv.DictReader((tmp_path / "reconciliation.csv").open()))
+    assert {"count_source", "reviewer", "flag"} <= set(recon[0])
+
+
+def test_opposite_variances_of_one_item_are_flagged_as_possible_transfer():
+    book = [BookLine("monitor", "A1-B2", 5, 100.0), BookLine("monitor", "A1-B4", 2, 100.0), BookLine("keyboard", "A2-B2", 2, 50.0)]
+    canonical = {
+        "A1-B2": ClipResult("a.mp4", "A1-B2", "monitor", 4, False, [], "a.png"),
+        "A1-B4": ClipResult("b.mp4", "A1-B4", "monitor", 3, False, [], "b.png"),
+        "A2-B2": ClipResult("c.mp4", "A2-B2", "keyboard", 1, False, [], "c.png"),
+    }
+    rows = reconcile(book, canonical)
+    flags = {(r.location, r.item): r.flag for r in rows}
+    assert flags[("A1-B2", "monitor")] == "possible transfer with A1-B4"
+    assert flags[("A1-B4", "monitor")] == "possible transfer with A1-B2"
+    assert flags[("A2-B2", "keyboard")] == ""  # a lone variance is not a transfer
