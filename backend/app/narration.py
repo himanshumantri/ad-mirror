@@ -1,7 +1,8 @@
 """Turn a transcribed narration into a plan location and an item.
 
-Staff say locations in spoken form ("aisle one bay area two"); plan locations are codes like "A1-B2".
-Matching is on the numbers in order, so "A1-B2", "aisle 1 bay 2" and "aisle one, bay area two" agree.
+Staff say locations in spoken form ("aisle one bay area two", "shelf A1 B2"); plan locations are codes like "A1-B2".
+Only numbers that follow a location word ("aisle", "bay", "shelf") or a code like "B2" count, so item counts said
+later ("four monitors") are never mistaken for a location.
 """
 import difflib
 import re
@@ -9,33 +10,50 @@ import re
 _NUMBER_WORDS = {w: i for i, w in enumerate(
     "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split()
 )}
+# Position in a plan code: 0 is the aisle ("A1"), 1 is the shelf or bay ("B2").
+_WORD_SLOT = {"aisle": 0, "bay": 1, "shelf": 1, "rack": 1, "bin": 1}
+_LETTER_SLOT = {"a": 0, "b": 1}
+_FILLER = {"area", "number", "no", "is", "at", "in"}
 
 
-def _numbers_in(token: str) -> list[int]:
+def _number(token: str) -> int | None:
     if token in _NUMBER_WORDS:
-        return [_NUMBER_WORDS[token]]
-    return [int(d) for d in re.findall(r"\d+", token)]
+        return _NUMBER_WORDS[token]
+    return int(token) if token.isdigit() else None
 
 
-def spoken_numbers(text: str, limit: int = 2) -> list[int]:
-    """The first `limit` numbers said after the word "aisle" (or from the start if it is absent)."""
-    tokens = re.findall(r"[a-z]+\d*|\d+", text.lower())
-    if "aisle" in tokens:
-        tokens = tokens[tokens.index("aisle") + 1:]
-    found: list[int] = []
-    for token in tokens:
-        found.extend(_numbers_in(token))
-        if len(found) >= limit:
-            break
-    return found[:limit]
+def spoken_location(text: str) -> dict[int, int]:
+    """The aisle (slot 0) and shelf (slot 1) numbers said in the narration; a slot not said is absent."""
+    said: dict[int, int] = {}
+    pending: int | None = None
+    for token in re.findall(r"[a-z]+\d*|\d+", text.lower()):
+        tagged = re.fullmatch(r"([ab])(\d+)", token)
+        if tagged:  # "A1", "B2": the letter says which slot
+            said.setdefault(_LETTER_SLOT[tagged.group(1)], int(tagged.group(2)))
+            pending = None
+        elif token in _WORD_SLOT:
+            pending = _WORD_SLOT[token]
+        elif pending is not None and _number(token) is not None:
+            said.setdefault(pending, _number(token))
+            pending = None
+        elif token not in _FILLER:
+            pending = None
+    return said
 
 
 def resolve_location(transcript: str, locations: list[str]) -> str | None:
-    """The plan location whose numbers match what was said, or None if none or several match."""
-    said = spoken_numbers(transcript)
+    """The one plan location that agrees with every part said, or None if nothing matches or several do.
+
+    "shelf B1" alone is ambiguous when both A3-B1 and A4-B1 exist, so it resolves to None rather than a guess.
+    """
+    said = spoken_location(transcript)
     if not said:
         return None
-    matches = [loc for loc in locations if [int(d) for d in re.findall(r"\d+", loc)][: len(said)] == said]
+    matches = []
+    for loc in locations:
+        parts = [int(d) for d in re.findall(r"\d+", loc)]
+        if all(slot < len(parts) and parts[slot] == n for slot, n in said.items()):
+            matches.append(loc)
     return matches[0] if len(matches) == 1 else None
 
 

@@ -21,11 +21,12 @@ def main() -> None:
     ap.add_argument("clips", nargs="+")
     ap.add_argument("--canonical", action="append", default=[], help='"<location>=<clip file>", one per location')
     ap.add_argument("--reviews", default=str(TESTDATA / "reviews.csv"), help="human decisions: clip,item,qty,reviewer,note")
+    ap.add_argument("--book", default=str(TESTDATA / "book_stock.csv"), help="book stock export: item,location,book_qty,unit_cost")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--refresh", action="store_true", help="ask Spark again instead of using cached verification")
     args = ap.parse_args()
 
-    book = load_book(TESTDATA / "book_stock.csv")
+    book = load_book(Path(args.book))
     results = {}
     for name in args.clips:
         r = run_clip(TESTDATA / name, book, runs=args.runs, refresh_verification=args.refresh)

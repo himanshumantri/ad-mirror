@@ -50,7 +50,24 @@ Model output is cached in `testdata/out/`, so everything after the model calls r
 | Voice | Transcript was accurate and item names were recognised; timestamps are per turn, not per word | Staff should say a standard location phrase |
 | Footage | Some clips are filmed sideways; cartons are visually identical, so item identity comes from narration or labels | Capture check for orientation (todo); mixed clips compare location totals |
 
-Known limits: four clips of one shelf is not an accuracy claim. Accuracy needs footage of other shelves, scored against hand counts. Cartons are treated as units (no pack sizes). The NetSuite-style adjustment columns come from community docs and need a test import.
+### Held-out test: Fresh 1-5 (code frozen, truth written beforehand)
+Five clips on five different shelves, scored against `fresh_truth.csv` using the visible count (cartons more than half visible).
+
+| Clip | Truth | Counted | Routed | What happened |
+| --- | --- | --- | --- | --- |
+| Fresh 1 (clean) | 4 | 4 | auto-pass | Correct |
+| Fresh 2 (mixed) | 5 | 3 | review | SAM alone found all 5; Spark disputed the 2 red boxes, which look like real cartons |
+| Fresh 3 (occluded) | 3 | 1 | review | 2 further cartons flagged as uncovered: the dark keyboard boxes on a dark shelf |
+| Fresh 4 (labels) | 3 | 3 | auto-pass | Correct |
+| Fresh 5 (16 visible, 17 present) | 16 | 6 | review | 7 further cartons flagged as uncovered; SAM never boxed the black keyboard cartons at 0.8+ confidence, and the best frame was a motion-blurred pan |
+
+- No wrong count was passed automatically: both auto-passes were right, and every miss went to review. That is the design working, not accuracy: 2 of 5 clips were counted correctly without help.
+- Weak spots: dark cartons on a dark background, blurred best frames, and Spark sometimes disputing real cartons (Fresh 2).
+- Fresh 5 has 16 visible cartons, so it sits on the 16-id limit and does not test it cleanly. Raw ids were 16 again.
+- Narration: "shelf B1 with four monitors" was resolved to A1-B4, because the "four" was read as a location number. Fixed afterwards: only numbers after "aisle", "bay", "shelf" or a code like "B2" count, and a shelf said without an aisle is reported as ambiguous when two shelves share it (here A3-B1 and A4-B1), not guessed. Fresh 1-5 were seen before this fix, so it is not a held-out result.
+- Any change to filters or prompts made after this point is tuning on seen clips and needs new clips to measure.
+
+Known limits: five clips is a small sample. Accuracy claims need more footage of other shelves, scored against hand counts. Cartons are treated as units (no pack sizes). The NetSuite-style adjustment columns come from community docs and need a test import.
 
 ## Running it
 ```
@@ -59,9 +76,10 @@ cd backend
 .\.venv\Scripts\python.exe scripts\evaluate.py                        # score cached SAM output vs testdata\clip_truth.csv
 .\.venv\Scripts\python.exe scripts\run_pipeline.py "Clip A.mp4" --canonical "A1-B2=Clip A.mp4"
 ```
+`run_pipeline.py` also takes `--book <csv>` (default `testdata/book_stock.csv`) and `--reviews <csv>`, so a separate set such as Fresh 1-5 keeps its own book and review files.
 Model calls need `MODEL_API_KEY`. `testdata/` (clips, book_stock.csv, clip_truth.csv, cached output) is git-ignored.
 
 ## Next steps
-1. Score a held-out set of fresh clips (different shelves, mixed items, one over 16 cartons) once, with the code frozen, against hand counts written beforehand.
+1. Fresh 1-5 are scored (see above). Next: record reviewer decisions for the flagged clips in `fresh_reviews.csv`, then fix the weak spots (dark cartons, blurred frames, Spark over-disputing) and measure the fix on new clips, including one with more than 16 visible cartons.
 2. Backend service: Postgres schema, FastAPI endpoints for plan, upload, jobs and results, and a hello-world deploy to Render and Vercel.
 3. Frontend: guided capture with hash and timestamp at capture, then the reviewer queue that feeds confirmed counts into reconciliation.
