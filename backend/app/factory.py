@@ -5,8 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import create_router
-from app.config import DATABASE_URL, UPLOADS
+from app.config import DATABASE_URL, OUT, UPLOADS
 from app.db import make_session_factory
+from app.investigate import Segmenter, create_investigation_router
 from app.jobs import Runner
 
 
@@ -16,7 +17,16 @@ def _default_runner() -> Runner:
     return run_clip
 
 
-def create_app(database_url: str = DATABASE_URL, uploads: Path = UPLOADS, runner: Runner | None = None) -> FastAPI:
+def _default_segmenter() -> Segmenter:
+    from app.sam_still import segment_still
+
+    return segment_still
+
+
+def create_app(
+    database_url: str = DATABASE_URL, uploads: Path = UPLOADS, runner: Runner | None = None,
+    out: Path = OUT, segmenter: Segmenter | None = None,
+) -> FastAPI:
     app = FastAPI(title="LedgerEyes API")
 
     # Comma-separated list of allowed frontend origins (the Vercel domain in production).
@@ -27,6 +37,8 @@ def create_app(database_url: str = DATABASE_URL, uploads: Path = UPLOADS, runner
     def health() -> dict:
         return {"status": "ok"}
 
-    app.include_router(create_router(make_session_factory(database_url), uploads, runner or _default_runner()))
+    sessions = make_session_factory(database_url)
+    app.include_router(create_router(sessions, uploads, runner or _default_runner(), out))
+    app.include_router(create_investigation_router(sessions, uploads, out, segmenter or _default_segmenter()))
     return app
 

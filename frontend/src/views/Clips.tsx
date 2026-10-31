@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { API, type Clip, type Plan } from '../api'
+import Investigate from './Investigate'
 import ReviewForm from './ReviewForm'
 
 function statusLabel(c: Clip): { text: string; tone: string } {
@@ -54,6 +55,12 @@ export default function ClipsView({ clips, plan, reload }: { clips: Clip[]; plan
                     <p>
                       Reviewed by {c.review.reviewer}: {c.review.lines.map((l) => `${l.item} ${l.qty}`).join(', ')}
                     </p>
+                  )}
+                  {c.status === 'done' && (
+                    <details className="inv">
+                      <summary>Investigate with SAM</summary>
+                      <Investigate key={c.id} clip={c} plan={plan} onResolved={reload} />
+                    </details>
                   )}
                   {c.status === 'done' && <ReviewForm key={`${c.id}-${c.review?.created_at ?? 'new'}`} clip={c} plan={plan} onSaved={reload} />}
                 </div>

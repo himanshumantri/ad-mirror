@@ -45,7 +45,6 @@ def run_clip(video: Path, book: list[BookLine], runs: int = 3, refresh_verificat
         raw, evidence_path = evidence_dir / f"{video.stem}_raw.png", evidence_dir / f"{video.stem}_review.png"
         extract_frame(video, ver.frame, raw)
         draw_review(raw, ver.boxes, ver.majority, ver.uncovered, evidence_path)
-        raw.unlink()
         evidence = evidence_path.relative_to(OUT).as_posix()  # relative, so the report travels with the evidence pack
 
     return ClipResult(

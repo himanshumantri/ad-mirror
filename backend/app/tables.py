@@ -47,6 +47,39 @@ class Clip(Base):
     review_location: Mapped[str | None] = mapped_column(String(100), default=None)
 
 
+class Investigation(Base):
+    """A reviewer's session on one clip's frame: SAM proposes cartons, the reviewer includes, excludes, adds and labels them.
+
+    `objects` is the current working set; every change is also appended to InvestigationEvent, which is never edited.
+    """
+    __tablename__ = "investigations"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    clip_id: Mapped[str] = mapped_column(ForeignKey("clips.id"), index=True)
+    reviewer: Mapped[str] = mapped_column(String(200))
+    location: Mapped[str | None] = mapped_column(String(100), default=None)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+    status: Mapped[str] = mapped_column(String(20), default="open")  # open | resolved
+    outcome: Mapped[str] = mapped_column(String(20), default="")  # confirmed | unresolved
+    note: Mapped[str] = mapped_column(String(2000), default="")
+    resolved_at: Mapped[datetime | None] = mapped_column(default=None)
+    frame: Mapped[str] = mapped_column(String(500))  # path under the data folder
+    frame_w: Mapped[int]
+    frame_h: Mapped[int]
+    machine_count: Mapped[int | None] = mapped_column(default=None)  # the clip's count before anyone edited anything
+    objects: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class InvestigationEvent(Base):
+    """Append-only log of what the reviewer did, so a final count can be traced from the machine proposal."""
+    __tablename__ = "investigation_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    investigation_id: Mapped[str] = mapped_column(ForeignKey("investigations.id"), index=True)
+    at: Mapped[datetime] = mapped_column(default=_now)
+    actor: Mapped[str] = mapped_column(String(200))
+    action: Mapped[str] = mapped_column(String(40))
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 class Review(Base):
     """One line of a reviewer's decision. A submission is a batch; the latest batch for a clip wins and older ones stay as history."""
     __tablename__ = "reviews"
