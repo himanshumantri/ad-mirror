@@ -90,6 +90,10 @@ Ledger effect: a negative variance reduces inventory and is expensed to the adju
 | Spark check | Per-box verdicts matched the frames; majority of 3 runs was exact on A, B, C and, with its stable uncovered cartons, on D | Spark verifies SAM; uncovered cartons are review triggers, not counts |
 | Units bug | Spark returned uncovered boxes in pixels, percent or per-mille | Prompt states pixel size; boxes outside the image are dropped |
 | Voice | Transcript was accurate and item names were recognised; timestamps are per turn, not per word | Staff should say a standard location phrase |
+| SAM on a still | The hosted API accepts a still image (`input_image`, base64 data URL) and box and point prompts, returning a box, mask and confidence per object (`scripts/sam_still_test.py`, Fresh 3 and 5, frame 0) | An investigate-a-variance screen with click-to-add is feasible |
+| Dark cartons | On the Fresh 5 still, SAM did box all five black keyboard cartons, but at 0.61-0.78 confidence, under the 0.8 cutoff; Fresh 3's black keyboard cartons scored 0.77 and 0.69 | The earlier "never boxed" reading was too strong: they were found and filtered out. A lower cutoff plus Spark's check is a hypothesis to test on new clips, not a fix |
+| 16-object cap | A text prompt on one still returned exactly 16 objects (one a thin sliver) | The cap is per request, not a video-tracking effect. A shelf with more cartons needs region crops |
+| Guided prompts | A point on a Fresh 3 keyboard carton returned the same box as the text prompt (0.76 confidence). On Fresh 5, prompts built from Spark's approximate boxes missed: one point landed on the neighbouring white carton, and box prompts scored 0.17 and 0.0 | A human click works; Spark's coordinates cannot be used as automatic prompts |
 | Footage | Some clips are filmed sideways; cartons are visually identical, so item identity comes from narration or labels | Capture check for orientation (todo); mixed clips compare location totals |
 
 ### Held-out test: Fresh 1-5 (code frozen, truth written beforehand)
