@@ -83,3 +83,45 @@ export async function sha256Hex(file: Blob): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
+
+export type InvObject = {
+  id: number
+  source: 'auto' | 'click'
+  box: [number, number, number, number]
+  conf: number
+  included: boolean
+  item: string | null
+  click: [number, number] | null
+}
+
+export type Investigation = {
+  id: string
+  clip_id: string
+  reviewer: string
+  location: string | null
+  status: 'open' | 'resolved'
+  outcome: '' | 'confirmed' | 'unresolved'
+  note: string
+  frame_w: number
+  frame_h: number
+  machine_count: number | null
+  objects: InvObject[]
+  capped: boolean
+  counts: { per_item: Record<string, number>; unassigned: number }
+  events: { at: string; actor: string; action: string; detail: Record<string, unknown> }[]
+}
+
+const json = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
+export const getInvestigations = (clipId: string) => request<Investigation[]>(`/clips/${clipId}/investigations`)
+export const startInvestigation = (clipId: string, reviewer: string, location?: string) =>
+  request<Investigation>(`/clips/${clipId}/investigations`, json('POST', { reviewer, location }))
+export const addClick = (id: string, x: number, y: number) => request<Investigation>(`/investigations/${id}/clicks`, json('POST', { x, y }))
+export const patchObject = (id: string, objId: number, body: { included?: boolean; item?: string }) =>
+  request<Investigation>(`/investigations/${id}/objects/${objId}`, json('PATCH', body))
+export const resolveInvestigation = (id: string, outcome: 'confirmed' | 'unresolved', note: string) =>
+  request<Investigation>(`/investigations/${id}/resolve`, json('POST', { outcome, note }))

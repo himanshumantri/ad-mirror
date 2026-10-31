@@ -79,7 +79,7 @@ def row_json(r: Row) -> dict:
     }
 
 
-def create_router(sessions: sessionmaker[Session], uploads: Path, runner: Runner) -> APIRouter:
+def create_router(sessions: sessionmaker[Session], uploads: Path, runner: Runner, out: Path = OUT) -> APIRouter:
     router = APIRouter()
 
     def db():
@@ -161,8 +161,8 @@ def create_router(sessions: sessionmaker[Session], uploads: Path, runner: Runner
     @router.get("/clips/{clip_id}/evidence")
     def get_evidence(clip_id: str, s: Session = Depends(db)) -> FileResponse:
         clip = _clip(s, clip_id)
-        path = (OUT / clip.evidence).resolve() if clip.evidence else None
-        if path is None or not path.is_file() or OUT.resolve() not in path.parents:
+        path = (out / clip.evidence).resolve() if clip.evidence else None
+        if path is None or not path.is_file() or out.resolve() not in path.parents:
             raise HTTPException(404, "No evidence frame for this clip")
         return FileResponse(path, media_type="image/png")
 
