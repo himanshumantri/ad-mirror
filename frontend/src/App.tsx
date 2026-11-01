@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getClips, getPlan, getReconciliation, type Clip, type Plan, type Row } from './api'
 import { BLURB, DEFAULT_NAME, remember, remembered, ROLES, TABS, type Role } from './roles'
 import CaptureView from './views/Capture'
@@ -37,8 +37,16 @@ export default function App() {
 
   // Follow clips that are still being counted.
   const working = clips.some((c) => c.status === 'queued' || c.status === 'running')
+  const wasWorking = useRef(false)
   useEffect(() => {
-    if (!working) return
+    if (!working) {
+      // The clip list and the reconciliation are fetched together, so a clip finishing between the two requests leaves the
+      // reconciliation one step behind. One more fetch once counting stops catches up.
+      if (wasWorking.current) void reload()
+      wasWorking.current = false
+      return
+    }
+    wasWorking.current = true
     const t = setInterval(() => void reload(), 3000)
     return () => clearInterval(t)
   }, [working, reload])
