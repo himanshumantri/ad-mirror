@@ -3,7 +3,7 @@ import { sha256Hex, uploadClip, type Clip } from '../api'
 
 type Step = 'idle' | 'hashing' | 'uploading' | 'done' | 'error'
 
-export default function CaptureView({ hasPlan, onUploaded }: { hasPlan: boolean; onUploaded: () => void }) {
+export default function CaptureView({ hasPlan, capturer, onUploaded }: { hasPlan: boolean; capturer: string; onUploaded: () => void }) {
   const [step, setStep] = useState<Step>('idle')
   const [error, setError] = useState('')
   const [clip, setClip] = useState<Clip | null>(null)
@@ -16,7 +16,7 @@ export default function CaptureView({ hasPlan, onUploaded }: { hasPlan: boolean;
       setStep('hashing')
       const hash = await sha256Hex(file)
       setStep('uploading')
-      setClip(await uploadClip(file, hash))
+      setClip(await uploadClip(file, hash, capturer))
       setStep('done')
       onUploaded()
     } catch (e) {
@@ -30,7 +30,8 @@ export default function CaptureView({ hasPlan, onUploaded }: { hasPlan: boolean;
   return (
     <section>
       <h2>Capture a shelf</h2>
-      {!hasPlan && <p className="warn">Upload the book stock first (Book stock tab).</p>}
+      {!hasPlan && <p className="warn">The book stock has not been uploaded yet. Ask the auditor to load it.</p>}
+      <p className="hint">Recorded as the capturer: <strong>{capturer}</strong>. You cannot review clips you capture.</p>
       <ol className="steps">
         <li>
           Film <strong>one shelf face</strong> per clip, slowly, with the phone held the way it will be reviewed.

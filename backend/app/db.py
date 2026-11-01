@@ -1,7 +1,7 @@
 """Engine and session factory: SQLite for local work, Postgres when DATABASE_URL points at one."""
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -16,6 +16,20 @@ def normalise_url(url: str) -> str:
     return url
 
 
+def add_missing_columns(engine) -> None:
+    """Stopgap until real migrations: create_all never alters an existing table, so add any nullable column the
+    code has gained since the table was created. Non-nullable additions need a proper migration."""
+    existing = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        have = {c["name"] for c in existing.get_columns(table.name)}
+        for col in table.columns:
+            if col.name not in have:
+                if not col.nullable:
+                    raise RuntimeError(f"{table.name}.{col.name} is new and not nullable: write a migration")
+                with engine.begin() as conn:
+                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(engine.dialect)}'))
+
+
 def make_session_factory(url: str) -> sessionmaker[Session]:
     url = normalise_url(url)
     kwargs: dict = {}
@@ -26,5 +40,6 @@ def make_session_factory(url: str) -> sessionmaker[Session]:
         else:
             Path(url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(url, **kwargs)
-    Base.metadata.create_all(engine)  # fine for the first deploy; move to migrations before the schema changes in production
+    Base.metadata.create_all(engine)
+    add_missing_columns(engine)
     return sessionmaker(engine, expire_on_commit=False)

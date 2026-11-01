@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { postReview, type Clip, type Plan } from '../api'
 
 /** A reviewer's per-item counts for one clip. Submitting replaces the machine count for the clip. */
-export default function ReviewForm({ clip, plan, onSaved }: { clip: Clip; plan: Plan; onSaved: () => void }) {
+export default function ReviewForm({ clip, plan, name, onSaved }: { clip: Clip; plan: Plan; name: string; onSaved: () => void }) {
   const [location, setLocation] = useState(clip.location ?? '')
-  const [reviewer, setReviewer] = useState(clip.review?.reviewer ?? '')
+  const [reviewer, setReviewer] = useState(name)
   const [qty, setQty] = useState<Record<string, string>>(
     Object.fromEntries((clip.review?.lines ?? []).map((l) => [l.item, String(l.qty)])),
   )

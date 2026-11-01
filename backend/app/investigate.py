@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.jobs import book_lines
 from app.media import extract_frame
+from app.roles import require_not_capturer
 from app.sam_still import point_prompt
 from app.segmentation import parse_sam_output
 from app.tables import Clip, Investigation, InvestigationEvent, Review
@@ -118,6 +119,7 @@ def create_investigation_router(sessions: sessionmaker[Session], uploads: Path, 
             raise HTTPException(404, "No such clip")
         if clip.status != "done":
             raise HTTPException(409, f"Clip is {clip.status}; investigate it once counting has finished")
+        require_not_capturer(clip, body.reviewer)
         if body.location is not None and body.location not in {b.location for b in book_lines(s)}:
             raise HTTPException(422, f"{body.location} is not a location in the book stock")
         frame = frame_path(clip, uploads, out)
