@@ -1,7 +1,7 @@
 """Database tables. One organisation for now: auth and per-customer separation come later."""
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, ForeignKey, String
+from sqlalchemy import JSON, ForeignKey, LargeBinary, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -46,6 +46,13 @@ class Clip(Base):
     # Set by a reviewer when the narration did not name a recognisable location
     review_location: Mapped[str | None] = mapped_column(String(100), default=None)
     captured_by: Mapped[str | None] = mapped_column(String(200), default=None)  # the capturer, who may not review this clip
+
+
+class Blob(Base):
+    """A small file kept in the database so it survives a restart of the host's disk. Key is the path under the data folder."""
+    __tablename__ = "blobs"
+    key: Mapped[str] = mapped_column(String(500), primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
 
 
 class Investigation(Base):

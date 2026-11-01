@@ -133,3 +133,35 @@ def test_unknown_ids(env):
     assert client.post("/clips/nope/investigations", json={"reviewer": "ana"}).status_code == 404
     assert client.get("/investigations/nope").status_code == 404
     assert client.get("/clips/nope/investigations").json() == []
+
+
+def test_frames_survive_the_disk_being_wiped(env, tmp_path):
+    client, clip_id = env
+    first = start(client, clip_id).json()
+    import shutil
+
+    shutil.rmtree(tmp_path / "out")  # a restart on a host with an ephemeral disk
+    assert client.get(f"/investigations/{first['id']}/frame").status_code == 200
+    shutil.rmtree(tmp_path / "out")
+    again = start(client, clip_id)  # starts from the database copy of the frame
+    assert again.status_code == 201
+    shutil.rmtree(tmp_path / "out")
+    assert client.post(f"/investigations/{again.json()['id']}/clicks", json={"x": 50, "y": 50}).status_code == 200
+
+
+def test_evidence_image_survives_the_disk_being_wiped(tmp_path):
+    out = tmp_path / "out"
+
+    def runner(video, book):
+        (out / "evidence").mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (20, 20), "red").save(out / "evidence" / f"{video.stem}_review.png")
+        return ClipResult(video.name, "A1-B2", "monitor", 1, False, [], f"evidence/{video.stem}_review.png", "")
+
+    client = TestClient(create_app("sqlite://", tmp_path / "uploads", runner, out, FakeSam()))
+    client.put("/plan", files={"file": ("b.csv", BOOK_CSV, "text/csv")})
+    clip = client.post("/clips", files={"file": ("s.mp4", b"video", "video/mp4")}).json()
+    import shutil
+
+    shutil.rmtree(out)
+    served = client.get(f"/clips/{clip['id']}/evidence")
+    assert served.status_code == 200 and served.headers["content-type"] == "image/png"
