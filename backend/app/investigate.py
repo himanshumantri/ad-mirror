@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.files import restore_blob
 from app.jobs import book_lines
 from app.media import extract_frame
 from app.roles import require_not_capturer
@@ -57,11 +58,11 @@ def _iso(d: datetime | None) -> str | None:
     return d.isoformat() if d else None
 
 
-def frame_path(clip: Clip, uploads: Path, out: Path) -> Path:
-    """The clip's unmarked frame. The pipeline keeps it; if it is gone, it is cut again from the video where possible."""
+def frame_path(s: Session, clip: Clip, uploads: Path, out: Path) -> Path:
+    """The clip's unmarked frame: on disk, else restored from the database, else cut again from the video if that survives."""
     stem = Path(clip.filename).stem
     raw = out / "evidence" / f"{stem}_raw.png"
-    if raw.exists():
+    if restore_blob(s, out, f"evidence/{stem}_raw.png"):
         return raw
     video, verify = uploads / clip.filename, out / f"verify_{stem}.json"
     if video.exists() and verify.exists():
@@ -122,7 +123,7 @@ def create_investigation_router(sessions: sessionmaker[Session], uploads: Path, 
         require_not_capturer(clip, body.reviewer)
         if body.location is not None and body.location not in {b.location for b in book_lines(s)}:
             raise HTTPException(422, f"{body.location} is not a location in the book stock")
-        frame = frame_path(clip, uploads, out)
+        frame = frame_path(s, clip, uploads, out)
         with Image.open(frame) as im:
             w, h = im.size
         proposals = parse_sam_output(segment(frame, AUTO_PHRASE)).get(0, [])
@@ -154,8 +155,9 @@ def create_investigation_router(sessions: sessionmaker[Session], uploads: Path, 
     @router.get("/investigations/{inv_id}/frame")
     def get_frame(inv_id: str, s: Session = Depends(db)) -> FileResponse:
         inv = s.get(Investigation, inv_id)
-        path = (out / inv.frame).resolve() if inv else None
-        if path is None or not path.is_file() or out.resolve() not in path.parents:
+        path = restore_blob(s, out, inv.frame) if inv else None
+        path = path.resolve() if path else None
+        if path is None or out.resolve() not in path.parents:
             raise HTTPException(404, "No such frame")
         return FileResponse(path, media_type="image/png")
 
@@ -165,7 +167,10 @@ def create_investigation_router(sessions: sessionmaker[Session], uploads: Path, 
         inv = get_open(s, inv_id)
         if not (0 <= body.x < inv.frame_w and 0 <= body.y < inv.frame_h):
             raise HTTPException(422, "That point is outside the frame")
-        found = parse_sam_output(segment(out / inv.frame, point_prompt(body.x, body.y, inv.frame_w, inv.frame_h))).get(0, [])
+        frame = restore_blob(s, out, inv.frame)
+        if frame is None:
+            raise HTTPException(404, "The frame for this investigation is no longer available")
+        found = parse_sam_output(segment(frame, point_prompt(body.x, body.y, inv.frame_w, inv.frame_h))).get(0, [])
         if not found:
             raise HTTPException(422, "SAM found no object at that point")
         d = found[0]

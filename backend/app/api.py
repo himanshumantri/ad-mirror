@@ -15,6 +15,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import MAX_UPLOAD_MB, OUT
+from app.files import restore_blob
 from app.jobs import Runner, book_lines, process_clip
 from app.reconcile import ClipResult, ReviewLine, Row, parse_book, reconcile, write_reports
 from app.roles import require_not_capturer
@@ -128,22 +129,22 @@ def create_router(sessions: sessionmaker[Session], uploads: Path, runner: Runner
         name = f"{clip_id}{Path(file.filename or '').suffix.lower()[:10]}"
         uploads.mkdir(parents=True, exist_ok=True)
         path, digest, size = uploads / name, hashlib.sha256(), 0
-        with path.open("wb") as out:
+        with path.open("wb") as video_file:
             while chunk := await file.read(1 << 20):
                 size += len(chunk)
                 if size > MAX_UPLOAD_MB * 1024 * 1024:
-                    out.close()
+                    video_file.close()
                     path.unlink(missing_ok=True)
                     raise HTTPException(413, f"Video is larger than {MAX_UPLOAD_MB} MB")
                 digest.update(chunk)
-                out.write(chunk)
+                video_file.write(chunk)
         if client_sha256 and client_sha256.lower() != digest.hexdigest():
             path.unlink(missing_ok=True)
             raise HTTPException(422, "The video changed in transit: its hash does not match the one the device sent")
         clip = Clip(id=clip_id, filename=name, original_name=file.filename or name, sha256=digest.hexdigest(), size_bytes=size, captured_by=(captured_by or "").strip() or None)
         s.add(clip)
         s.commit()
-        background.add_task(process_clip, sessions, clip_id, uploads, runner)
+        background.add_task(process_clip, sessions, clip_id, uploads, runner, out)
         return clip_json(s, clip)
 
     @router.get("/clips")
@@ -163,8 +164,9 @@ def create_router(sessions: sessionmaker[Session], uploads: Path, runner: Runner
     @router.get("/clips/{clip_id}/evidence")
     def get_evidence(clip_id: str, s: Session = Depends(db)) -> FileResponse:
         clip = _clip(s, clip_id)
-        path = (out / clip.evidence).resolve() if clip.evidence else None
-        if path is None or not path.is_file() or out.resolve() not in path.parents:
+        path = restore_blob(s, out, clip.evidence) if clip.evidence else None
+        path = path.resolve() if path else None
+        if path is None or out.resolve() not in path.parents:
             raise HTTPException(404, "No evidence frame for this clip")
         return FileResponse(path, media_type="image/png")
 
