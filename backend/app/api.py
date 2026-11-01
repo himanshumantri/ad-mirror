@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import MAX_UPLOAD_MB, OUT
 from app.jobs import Runner, book_lines, process_clip
 from app.reconcile import ClipResult, ReviewLine, Row, parse_book, reconcile, write_reports
+from app.roles import require_not_capturer
 from app.tables import BookLineRow, Clip, Review
 
 
@@ -46,7 +47,7 @@ def latest_review(s: Session, clip_id: str) -> list[Review]:
 def clip_json(s: Session, c: Clip) -> dict:
     review = latest_review(s, c.id)
     return {
-        "id": c.id, "original_name": c.original_name, "sha256": c.sha256, "size_bytes": c.size_bytes,
+        "id": c.id, "captured_by": c.captured_by, "original_name": c.original_name, "sha256": c.sha256, "size_bytes": c.size_bytes,
         "uploaded_at": _iso(c.uploaded_at), "finished_at": _iso(c.finished_at), "status": c.status, "error": c.error,
         "location": c.review_location or c.location, "narrated_location": c.location, "item": c.item,
         "machine_count": c.counted, "needs_review": c.needs_review, "reasons": c.reasons,
@@ -115,6 +116,7 @@ def create_router(sessions: sessionmaker[Session], uploads: Path, runner: Runner
         background: BackgroundTasks,
         file: UploadFile = File(...),
         client_sha256: str | None = Form(default=None),
+        captured_by: str | None = Form(default=None),
         s: Session = Depends(db),
     ) -> dict:
         """Store a video, hash it on arrival and queue it for counting. If the client sent its own hash and it differs, reject."""
@@ -138,7 +140,7 @@ def create_router(sessions: sessionmaker[Session], uploads: Path, runner: Runner
         if client_sha256 and client_sha256.lower() != digest.hexdigest():
             path.unlink(missing_ok=True)
             raise HTTPException(422, "The video changed in transit: its hash does not match the one the device sent")
-        clip = Clip(id=clip_id, filename=name, original_name=file.filename or name, sha256=digest.hexdigest(), size_bytes=size)
+        clip = Clip(id=clip_id, filename=name, original_name=file.filename or name, sha256=digest.hexdigest(), size_bytes=size, captured_by=(captured_by or "").strip() or None)
         s.add(clip)
         s.commit()
         background.add_task(process_clip, sessions, clip_id, uploads, runner)
@@ -172,6 +174,7 @@ def create_router(sessions: sessionmaker[Session], uploads: Path, runner: Runner
         clip = _clip(s, clip_id)
         if clip.status != "done":
             raise HTTPException(409, f"Clip is {clip.status}; review it once counting has finished")
+        require_not_capturer(clip, body.reviewer)
         if body.location is not None:
             if body.location not in {b.location for b in book_lines(s)}:
                 raise HTTPException(422, f"{body.location} is not a location in the book stock")

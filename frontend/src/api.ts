@@ -3,6 +3,7 @@ export const API: string = import.meta.env.VITE_API_URL ?? 'http://localhost:800
 export type Clip = {
   id: string
   original_name: string
+  captured_by: string | null
   sha256: string
   size_bytes: number
   uploaded_at: string
@@ -63,10 +64,11 @@ export function putPlan(file: File) {
   return request<{ lines: number; locations: number }>('/plan', { method: 'PUT', body: form })
 }
 
-export function uploadClip(file: File, sha256: string) {
+export function uploadClip(file: File, sha256: string, capturedBy: string) {
   const form = new FormData()
   form.append('file', file)
   form.append('client_sha256', sha256)
+  form.append('captured_by', capturedBy)
   return request<Clip>('/clips', { method: 'POST', body: form })
 }
 

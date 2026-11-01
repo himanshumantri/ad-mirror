@@ -5,9 +5,9 @@ import {
 } from '../api'
 
 /** Work on a clip's frame with SAM: include or exclude proposed cartons, click ones it missed, say which item each is. */
-export default function Investigate({ clip, plan, onResolved }: { clip: Clip; plan: Plan; onResolved: () => void }) {
+export default function Investigate({ clip, plan, name, onResolved }: { clip: Clip; plan: Plan; name: string; onResolved: () => void }) {
   const [inv, setInv] = useState<Investigation | null>(null)
-  const [reviewer, setReviewer] = useState(clip.review?.reviewer ?? '')
+  const [reviewer, setReviewer] = useState(name)
   const [location, setLocation] = useState(clip.location ?? '')
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
@@ -41,7 +41,7 @@ export default function Investigate({ clip, plan, onResolved }: { clip: Clip; pl
   if (!inv) {
     return (
       <div className="review">
-        <h4>Investigate this shelf</h4>
+        <h4>Correct real footage</h4>
         <p className="hint">SAM proposes the cartons on this clip's frame. You include or exclude each one, click any it missed, and say which item each is.</p>
         {!clip.location && (
           <label>
@@ -85,7 +85,7 @@ export default function Investigate({ clip, plan, onResolved }: { clip: Clip; pl
 
   return (
     <div className="investigate">
-      <h4>Investigating {inv.location ?? 'an unknown location'}</h4>
+      <h4>Correcting {inv.location ?? 'an unknown location'}</h4>
       <p className="hint">
         Machine count was {inv.machine_count}. Green: counted. Orange: SAM was unsure, so it starts excluded. Blue: you clicked it.
       </p>

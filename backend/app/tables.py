@@ -45,6 +45,7 @@ class Clip(Base):
     transcript: Mapped[str] = mapped_column(String(4000), default="")
     # Set by a reviewer when the narration did not name a recognisable location
     review_location: Mapped[str | None] = mapped_column(String(100), default=None)
+    captured_by: Mapped[str | None] = mapped_column(String(200), default=None)  # the capturer, who may not review this clip
 
 
 class Investigation(Base):

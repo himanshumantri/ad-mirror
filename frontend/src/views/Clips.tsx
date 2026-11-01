@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { API, type Clip, type Plan } from '../api'
+import type { Role } from '../roles'
 import Investigate from './Investigate'
 import ReviewForm from './ReviewForm'
 
@@ -10,14 +11,20 @@ function statusLabel(c: Clip): { text: string; tone: string } {
   return c.needs_review ? { text: 'Needs review', tone: 'warn' } : { text: 'Auto-passed', tone: 'ok' }
 }
 
-export default function ClipsView({ clips, plan, reload }: { clips: Clip[]; plan: Plan; reload: () => void }) {
+export default function ClipsView({ clips, plan, role, name, reload }: { clips: Clip[]; plan: Plan; role: Role; name: string; reload: () => void }) {
   const [open, setOpen] = useState<string | null>(null)
   const queue = clips.filter((c) => c.status === 'done' && c.needs_review && !c.review).length
 
   return (
     <section>
       <h2>Clips</h2>
-      <p className="hint">{queue > 0 ? `${queue} clip(s) need a reviewer's count before they reach the reconciliation.` : 'Nothing waiting for review.'}</p>
+      <p className="hint">
+        {role === 'Capturer'
+          ? 'Your uploads and what happened to them.'
+          : queue > 0
+            ? `${queue} clip(s) need a reviewer's count before they reach the reconciliation.`
+            : 'Nothing waiting for review.'}
+      </p>
       {clips.length === 0 && <p>No clips yet.</p>}
       <ul className="clips">
         {clips.map((c) => {
@@ -56,13 +63,15 @@ export default function ClipsView({ clips, plan, reload }: { clips: Clip[]; plan
                       Reviewed by {c.review.reviewer}: {c.review.lines.map((l) => `${l.item} ${l.qty}`).join(', ')}
                     </p>
                   )}
-                  {c.status === 'done' && (
+                  {c.status === 'done' && role === 'Auditor' && (
                     <details className="inv">
-                      <summary>Investigate with SAM</summary>
-                      <Investigate key={c.id} clip={c} plan={plan} onResolved={reload} />
+                      <summary>Correct real footage</summary>
+                      <Investigate key={`${c.id}-${name}`} clip={c} plan={plan} name={name} onResolved={reload} />
                     </details>
                   )}
-                  {c.status === 'done' && <ReviewForm key={`${c.id}-${c.review?.created_at ?? 'new'}`} clip={c} plan={plan} onSaved={reload} />}
+                  {c.status === 'done' && role === 'Reviewer' && (
+                    <ReviewForm key={`${c.id}-${name}-${c.review?.created_at ?? 'new'}`} clip={c} plan={plan} name={name} onSaved={reload} />
+                  )}
                 </div>
               )}
             </li>
